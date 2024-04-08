@@ -1,10 +1,14 @@
 from flask import Flask,render_template,request,flash,redirect,url_for
 from flask_sqlalchemy import SQLAlchemy
+from flask_bcrypt import generate_password_hash
+from flask_bcrypt import check_password_hash
+from flask import session
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:@localhost/livro"
 db = SQLAlchemy(app)
 app.config['SECRET_KEY'] = '123'
+
 
 class Livro(db.Model):
     id_livro = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -12,15 +16,26 @@ class Livro(db.Model):
     autor = db.Column(db.String(254))
     ano_publicacao = db.Column(db.Integer)
 
+class Usuario(db.Model):
+    id_usuario = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    email= db.Column(db.String(100))
+    senha= db.Column(db.String(254))
+
 
 @app.route('/')
 def index():
     livros = Livro.query.all()
-    return render_template("cadastro.livros.html", outro=livros)
+    if 'id' in session:
+        return render_template("cadastro.livros.html", outro=livros)
+    else:
+        return redirect(url_for('login_form'))
 
 @app.route('/novo')
 def novo():
-    return render_template("novo.html", titulo="Novo Livro")
+    if 'id' in session:
+        return render_template('novo.html', titulo='Novo Livro')
+    else:
+        return redirect(url_for('login_form'))
 
 @app.route('/criar', methods={"POST"})
 def criar():
@@ -41,7 +56,10 @@ def criar():
 @app.route('/editar/<int:id>')
 def editar(id):
     livro = Livro.query.filter_by(id_livro=id).first()
-    return render_template('editar.html', titulo='Editando Livro', livro=livro)
+    if 'id' in session:
+        return render_template('editar.html', titulo='Editando Livro', livro=livro)
+    else:
+        return redirect(url_for('login_form'))
 
 @app.route('/atualizar', methods=['POST'])
 def atualizar():
@@ -55,7 +73,6 @@ def atualizar():
    db.session.commit()
 
    return redirect(url_for('index'))
-   return redirect(url_for('index'))
 
 @app.route('/deletar/<int:id>')
 def deletar(id):
@@ -64,6 +81,58 @@ def deletar(id):
     flash('Livro excluido com sucesso.')
     return redirect(url_for('index'))
 
+@app.route('/login')
+def login_form():
+    if 'id' in session:
+        return render_template('login.html')
+    else:
+        return redirect(url_for('login_form'))
+
+@app.route('/login', methods=['POST'])
+def login_post():
+    email = request.form.get('email')
+    senha = request.form.get('senha')
+
+    user = Usuario.query.filter_by(email=email).first()
+    senha = check_password_hash(user.senha, senha)
+    if user and senha:
+        session['id'] = user.id_usuario
+        if 'next' in session:
+            next_route = session.pop('next')
+            return redirect(url_for(next_route))
+        return redirect(url_for('index'))
+    else:
+        flash('Email ou senha incorretos', 'error')
+        return redirect(url_for('login_form'))
+
+@app.route('/novo_user')
+def novo_user():
+    if 'id' in session:
+        return render_template('novo_usuario.html', titulo='Novo Usuário')
+    else:
+        return redirect(url_for('login_form'))
+
+@app.route('/criar_user', methods=['POST'])
+def criar_user():
+    email = request.form['email']
+    senha = request.form['senha']
+
+    user = Usuario.query.filter_by(email=email).first()
+    if user:
+        flash('Usuário já existe', 'error')
+        return redirect(url_for('novo_user'))
+    else:
+        senha_hash = generate_password_hash(senha).decode('utf-8')
+        novo_usuario = Usuario(email=email, senha=senha_hash)
+        db.session.add(novo_usuario)
+        db.session.commit()
+        flash('Usuário cadastrado com sucesso', 'success')
+        return redirect(url_for('novo_user'))
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('id', None)
+    return redirect(url_for('index'))
 
 if __name__ == "__main__":
     app.run(debug=True)
